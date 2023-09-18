@@ -100,6 +100,8 @@ typedef struct Platform {
 	float x2;//bottom right
 	float y2;
 	
+	void* next;
+	
 	float drawing[8];
 	
 } Platform;
@@ -107,6 +109,65 @@ typedef struct Platform {
 //player position and velocity
 float px, py, pvx, pvy;
 
+//map data
+float mapWidth = 75.0f;
+float mapHeight = 70.0f;
+int numPlatforms = 1800;
+float platformWidthMul = 0.35f;
+float platformWidthMin = 0.1f;
+float platformHeightMul = 0.04f;
+float platformHeightMin = 0.02f;
+#define xchunks 7
+#define ychunks 7
+#define pxchunk 3
+#define pychunk 3
+int platformsPerChunkMin = 2;
+float platformsPerChunkRand = 12.0f;
+float chunkSize = 4.0f;
+
+long pchunkx = 0;
+long pchunky = 0;
+	
+Platform* platforms[xchunks][ychunks];
+
+
+void genPlatforms(int x, int y, int x2, int y2) {
+	Platform** platPtr = &platforms[x][y];
+						
+	int numPlatforms = platformsPerChunkMin + floor(randf() * platformsPerChunkRand);
+	
+	for (int i = 0; i < numPlatforms; i++) {
+		Platform* platform = malloc(sizeof(Platform));
+		printf("%d\n",sizeof(Platform));
+		if (platform == NULL) {
+			printf("Malloc fail\n");
+			fflush(stdout);
+			exit(1);
+		}
+		platform->next = NULL;
+		*platPtr = platform;
+		platPtr = (Platform**) &platform->next;
+		
+		float r1 = randf() * chunkSize;
+		float r2 = randf() * chunkSize;
+		float r3 = randf() * platformWidthMul + platformWidthMin;
+		float r4 = randf() * platformHeightMul + platformHeightMin;
+		
+		platform->x1 = r1 - r3*0.5f + (float)(x2 + x) * chunkSize;
+		platform->y1 = r2 - r4*0.5f + (float)(y2 + y) * chunkSize;
+		platform->x2 = r1 + r3*0.5f + (float)(x2 + x) * chunkSize;
+		platform->y2 = r2 + r4*0.5f + (float)(y2 + y) * chunkSize;
+		
+		platform->drawing[0]= platform->x1;
+		platform->drawing[1]= platform->y1;
+		platform->drawing[2]= platform->x2;
+		platform->drawing[3]= platform->y1;
+		platform->drawing[4]= platform->x1;
+		platform->drawing[5]= platform->y2;
+		platform->drawing[6]= platform->x2;
+		platform->drawing[7]= platform->y2;
+	}
+}
 
 int main() {
 	srand (time(NULL));
@@ -217,7 +278,7 @@ int main() {
 	GLTtext* startText = gltCreateText();
 	gltSetText(startText, "Start");
 	GLTtext* instructionText = gltCreateText();
-	gltSetText(instructionText, "Instructions:\n");
+	gltSetText(instructionText, "Instructions:\n Right Click: Grapple, hold to reel in\n QE: Control zoom");
 
 
 
@@ -286,19 +347,11 @@ int main() {
 	//some game data
 	char inMenu = 1;
 	
-	float mapWidth = 75.0f;
-	float mapHeight = 70.0f;
-	int numPlatforms = 1800;
-	float platformWidthMul = 0.2f;
-	float platformWidthMin = 0.06f;
-	float platformHeightMul = 0.04f;
-	float platformHeightMin = 0.04f;
-	int xchunks = 5;
-	int ychunks = 5;
 	
-	float maxDist = (sqr(platformWidthMin + platformWidthMul) + sqr(platformHeightMin + platformHeightMul));
 	
-	Platform* platforms = malloc(sizeof(Platform) * numPlatforms);
+	//Platform* platforms = malloc(sizeof(Platform) * numPlatforms);
+	
+	
 	
 	char platformDraw[] = {
 		0,1,2,
@@ -309,7 +362,7 @@ int main() {
 	double fpsclastTime = glfwGetTime();
 	int fpscnbFrames = 0;
 	
-	int trailCount = 1500;
+	int trailCount = 100;
 	
 	//test for OpenGL errors
 	{int err = glGetError();if (err) {printf(getGLErrorStr(err));
@@ -350,8 +403,9 @@ int main() {
 			if (mclick && mx > -0.7f && mx < 0.7f && my > -0.1f && my < 0.1f) {
 				//initialize game
 				inMenu = 0;
-				px = mapWidth - 1.0f;
-				py = mapHeight/2;
+				
+				px = chunkSize * (float)(xchunks)*0.5f;
+				py = chunkSize * (float)(ychunks)*0.5f;
 				pvx = 0;
 				pvy = 0;
 				
@@ -367,27 +421,13 @@ int main() {
 				glUniform1f(zoomLocation, zoom);
 				
 				//generate map
-				for (int i = 0; i < numPlatforms; i++) {
-					float r1 = randf() * mapWidth;
-					float r2 = randf() * mapHeight;
-					float r3 = randf() * platformWidthMul + platformWidthMin;
-					float r4 = randf() * platformHeightMul + platformHeightMin;
-					
-					platforms[i].x1 = r1 - r3*0.5f;
-					platforms[i].y1 = r2 - r4*0.5f;
-					platforms[i].x2 = r1 + r3*0.5f;
-					platforms[i].y2 = r2 + r4*0.5f;
-					
-					platforms[i].drawing[0]=platforms[i].x1;
-					platforms[i].drawing[1]=platforms[i].y1;
-					platforms[i].drawing[2]=platforms[i].x2;
-					platforms[i].drawing[3]=platforms[i].y1;
-					platforms[i].drawing[4]=platforms[i].x1;
-					platforms[i].drawing[5]=platforms[i].y2;
-					platforms[i].drawing[6]=platforms[i].x2;
-					platforms[i].drawing[7]=platforms[i].y2;
+				for (int x = 0; x < xchunks; x++) {
+					for (int y = 0; y < ychunks; y++) {
+						genPlatforms(x, y, -pychunk, -pychunk);
+					}
 				}
 				
+				//printf("got here\n");
 			}
 			
 			lastpx = px;
@@ -398,11 +438,15 @@ int main() {
 				trails[i] = px;
 				trails[i+1] = py;
 			}
+			
+			
 		} else {
 			//gravity
 			pvy -= 0.00012f;
 			
 			//game logic
+			
+			
 			if (m2click) {
 				if (grappling) {
 					grappling = 0;
@@ -417,12 +461,140 @@ int main() {
 				}
 			}
 			
+			//set chunks
+			long npchunkx = floorl(px / chunkSize);
+			long npchunky = floorl(py / chunkSize);
+			
+			int deltachunkx = pchunkx - npchunkx;
+			int deltachunky = pchunky - npchunky;
+			
+			pchunkx = npchunkx;
+			pchunky = npchunky;
+			
+			
+			
+			
+			
+			while (deltachunkx > 0) {//player went left
+				deltachunkx--;
+				
+				for (int i = 0; i < ychunks; i++) {
+					Platform* platform = platforms[xchunks-1][i];
+					
+					while (1) {
+						Platform* n = platform->next;
+						free(platform);
+						platform = n;
+						if (platform == NULL) {
+							break;
+						}
+					}
+				}
+				
+				for (int i = xchunks-2; i > -1; i--) {
+					for (int j = 0; j < ychunks; j++) {
+						platforms[i+1][j] = platforms[i][j];
+					}
+				}
+				
+				for (int i = 0; i < ychunks; i++) {
+					genPlatforms(0, i, npchunkx - pxchunk, npchunky-pychunk);
+				}
+			}
+			
+			while (deltachunkx < 0) {//player went right
+				deltachunkx++;
+				
+				for (int i = 0; i < ychunks; i++) {
+					Platform* platform = platforms[0][i];
+					
+					while (1) {
+						Platform* n = platform->next;
+						free(platform);
+						platform = n;
+						if (platform == NULL) {
+							break;
+						}
+					}
+				}
+				
+				for (int i = 0; i < xchunks-1; i++) {
+					for (int j = 0; j < ychunks; j++) {
+						platforms[i][j] = platforms[i+1][j];
+					}
+				}
+				
+				for (int i = 0; i < ychunks; i++) {
+					genPlatforms(xchunks-1, i, npchunkx-pxchunk, npchunky-pychunk);
+				}
+			}
+			
+			
+			
+			while (deltachunky > 0) {//player went down
+				deltachunky--;
+				
+				for (int i = 0; i < xchunks; i++) {
+					Platform* platform = platforms[i][ychunks-1];
+					
+					while (1) {
+						Platform* n = platform->next;
+						free(platform);
+						platform = n;
+						if (platform == NULL) {
+							break;
+						}
+					}
+				}
+				
+				for (int i = 0; i < xchunks; i++) {
+					for (int j = ychunks-2; j > -1; j--) {
+						platforms[i][j+1] = platforms[i][j];
+					}
+				}
+				
+				for (int i = 0; i < xchunks; i++) {
+					genPlatforms(i, 0, npchunkx-pxchunk, npchunky-pychunk);
+				}
+			}
+			
+			
+			while (deltachunky < 0) {//player went up
+				deltachunky++;
+				
+				for (int i = 0; i < xchunks; i++) {
+					Platform* platform = platforms[i][0];
+					
+					while (1) {
+						Platform* n = platform->next;
+						free(platform);
+						platform = n;
+						if (platform == NULL) {
+							break;
+						}
+					}
+				}
+				
+				for (int i = 0; i < xchunks; i++) {
+					for (int j = 0; j < ychunks - 1; j++) {
+						platforms[i][j] = platforms[i][j+1];
+					}
+				}
+				
+				for (int i = 0; i < xchunks; i++) {
+					genPlatforms(i, ychunks-1, npchunkx-pxchunk, npchunky-pychunk);
+				}
+			}
+			
+			
+			
+			
 			if (grappling) {
 				grapplex += grapplevx;
 				grappley += grapplevy;
 				
 				if (!grappleHooked) {
-					for (int i = 0; i < numPlatforms; i++) {
+					/*for (int i = 0; i < numPlatforms; i++) {
 						char brk = 0;
 						if (abs(grapplex - platforms[i].x1) < 6.0f && abs(grappley - platforms[i].y1) < 6.0f) {
 							grapplex -= grapplevx;
@@ -444,9 +616,54 @@ int main() {
 							
 							if (brk) {break;}
 						}
+					}*/
+					
+					char brk = 0;
+					
+					for (int xi = 0; xi < 2; xi++) {
+						for (int yi = 0; yi < 2; yi++) {
+							int x = xi - 1 + floor(grapplex / chunkSize) - floor(px / chunkSize) + pxchunk;
+							int y = yi - 1 + floor(grappley / chunkSize) - floor(py / chunkSize) + pychunk;
+							
+							if (x < 0 || y < 0 || x > xchunks-1 || y > ychunks-1) {
+								continue;
+							}
+							
+							Platform* platform = platforms[x][y];
+							
+							while (1) {
+								if (abs(grapplex - platform->x1) < 6.0f && abs(grappley - platform->y1) < 6.0f) {
+									grapplex -= grapplevx;
+									grappley -= grapplevy;
+									for (int j = 0; j < 5; j++) {
+										grapplex += grapplevx*0.2f;
+										grappley += grapplevy*0.2f;
+										if (grapplex > platform->x1 && grapplex < platform->x2 && grappley > platform->y1 && grappley < platform->y2) {
+											grappleHooked = 1;
+											grappleLen = sqrt(sqr(px-grapplex)+sqr(py-grappley));
+											grapplevx=0;
+											grapplevy=0;
+											
+											brk = 1;
+											break;
+											
+										}
+									}
+									
+									if (brk) {break;}
+								}
+								
+								platform = platform->next;
+								if (platform == NULL) {
+									break;
+								}
+							}
+							if (brk) {break;}
+						}
+						if (brk) {break;}
 					}
+					
 				}
-				
 				if (grappleHooked) {
 					float actualLen = sqrt(sqr(px-grapplex)+sqr(py-grappley));
 					
@@ -473,12 +690,14 @@ int main() {
 			
 			float v = sqrt(pvx*pvx+pvy*pvy);
 			
-			pvx -= pvx * 0.02f * v;
-			pvy -= pvy * 0.02f * v;
+			//air resisrance
+			pvx -= pvx * 0.01f * v;
+			pvy -= pvy * 0.01f * v;
 			
 			px += pvx;
 			py += pvy;
 		}
+		
 		
 		
 		
@@ -505,14 +724,8 @@ int main() {
     	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 			
 			glUniform4f(colorLocation, .3f,.3f,.3f,1.0f);
-			{int err = glGetError();if (err) {printf(getGLErrorStr(err));
-				printf("d\n");fflush(stdout);}}
 			glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(float) * 8, menuVerts);
-			{int err = glGetError();if (err) {printf(getGLErrorStr(err));
-				printf("e\n");fflush(stdout);}}
 			glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, 0, 6, menuInds);
-			{int err = glGetError();if (err) {printf(getGLErrorStr(err));
-				printf("f\n");fflush(stdout);}}
       glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_BYTE, 0);
 			glUseProgram(0);
 			
@@ -520,6 +733,7 @@ int main() {
 			gltColor(1.0f,1.0f,1.0f,1.0f);
 			gltDrawText2DAligned(titleText,(float)windowWidth/2,0.2f*(float)windowHeight/2,6.0f, GLT_CENTER, GLT_CENTER);
 			gltDrawText2DAligned(startText,(float)windowWidth/2,0.5f*(float)windowHeight,4.0f, GLT_CENTER, GLT_CENTER);
+			gltDrawText2DAligned(instructionText,(float)windowWidth/2,0.6f*(float)windowHeight,2.0f, GLT_CENTER, GLT_TOP);
 			
 			gltEndDraw();
 		} else {
@@ -530,7 +744,7 @@ int main() {
 			glUniform2f(camPosLocation, px, py);
 			glUniform4f(colorLocation, 0.95f, 0.95f, 0.95f, 1.0f);
 			glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, 0, 6, platformDraw);
-			for (int i = 0; i < numPlatforms; i++) {
+			/*for (int i = 0; i < numPlatforms; i++) {
 				float camx = px - platforms[i].x1;
 				float camy = py - platforms[i].y1;
 				
@@ -551,6 +765,23 @@ int main() {
 				
 				glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(float) * 8, platforms[i].drawing);
 				glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_BYTE, 0);
+			}*/
+			
+			for (int x=pxchunk-1; x < pxchunk+2; x++) {
+				for (int y=pychunk-1; y < pychunk+2; y++) {
+					Platform* platform = platforms[x][y];
+					while (1) {
+						if (platform == NULL) {
+							break;
+						}
+						
+						glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(float) * 8, platform->drawing);
+						glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_BYTE, 0);
+						platform = platform->next;
+						
+						
+					}
+				}
 			}
 			
 			//grapple
