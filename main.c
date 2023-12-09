@@ -9,11 +9,12 @@ void* __chk_fail=0; //weord fix to compile for windows
 #include <time.h>
 #include <math.h>
 #include <stdlib.h>
-#include "drawing.h"
 
 #define GLT_IMPLEMENTATION
 #define GLT_MANUAL_VIEWPORT
 #include "glText.h"
+#include "drawing.h"
+
 
 //opengl
 uint32_t VBO;
@@ -25,14 +26,14 @@ unsigned int shaderProgram;
 uint32_t windowWidth=700;
 uint32_t windowHeight=700;
 float zoom = 1.0f;
-float maxZoom = 4.0f;
+float maxZoom = 8.0f;
 float minZoom = 0.25f;
 
 //mouse data
 float mx=0.001f;
 float my=0.001f;
-char mdown = 0;
-char mclick = 0;
+char m1down = 0;
+char m1click = 0;
 char m2down = 0;
 char m2click = 0;
 
@@ -43,8 +44,12 @@ float grapplevy;
 float grappling;
 float grappleHooked;
 float grappleLen;
-float grappleSpeed = 0.085f;
+float grappleSpeed = 0.095f;
 float grappleSpringConst = 0.005f;
+float maxGrappleLenSquared = 22.8 * 22.8f;
+
+int weapon;
+char plDead;
 
 
 float sqr(float a) {
@@ -79,15 +84,15 @@ void mouse_callback(GLFWwindow* window, double dmposx, double dmposy) {
 
 void mouse_button_callback(GLFWwindow* window, int button, int action, int mods) {
 	if(button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
-		mdown = 1;
-		mclick = 1;
+		m1down = 1;
+		m1click = 1;
 	}
 	if(button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS) {
 		m2down = 1;
 		m2click = 1;
 	}
 	if(button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_RELEASE) {
-		mdown = 0;
+		m1down = 0;
 	}
 	if(button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_RELEASE) {
 		m2down = 0;
@@ -106,6 +111,43 @@ typedef struct Platform {
 	
 } Platform;
 
+typedef struct Swarm {
+	float color1;
+	float color2;
+	float color3;
+	float x;
+	float y;
+	float vx;
+	float vy;
+	float ax;
+	float ay;
+	float* model;
+	float angle;
+	float size;
+	
+	char hasWeapon;
+	char hp;
+	
+	float turnspeed;
+	float speed;
+	struct Swarm* next;
+	struct Swarm* prev;
+	
+} Swarm;
+
+typedef struct Projectile {
+	float x;
+	float y;
+	float vx;
+	float vy;
+	float collisionRadius;
+	float angle;
+	struct Projectile* next;
+	struct Projectile* prev;
+} Projectile;
+
+Projectile* firstProjectile;
+Projectile* lastProjectile;
 //player position and velocity
 float px, py, pvx, pvy;
 
@@ -121,8 +163,8 @@ float platformHeightMin = 0.02f;
 #define ychunks 7
 #define pxchunk 3
 #define pychunk 3
-int platformsPerChunkMin = 2;
-float platformsPerChunkRand = 12.0f;
+int platformsPerChunkMin = 3;
+float platformsPerChunkRand = 7.0f;
 float chunkSize = 4.0f;
 
 long pchunkx = 0;
@@ -138,7 +180,6 @@ void genPlatforms(int x, int y, int x2, int y2) {
 	
 	for (int i = 0; i < numPlatforms; i++) {
 		Platform* platform = malloc(sizeof(Platform));
-		printf("%d\n",sizeof(Platform));
 		if (platform == NULL) {
 			printf("Malloc fail\n");
 			fflush(stdout);
@@ -169,6 +210,89 @@ void genPlatforms(int x, int y, int x2, int y2) {
 	}
 }
 
+int enemyTimer;
+int maxEnemyTimer;
+
+Swarm* firstSwarm = NULL;
+Swarm* lastSwarm = NULL;
+
+char hasDied = 0;
+char inMenu = 1;
+
+void killPlayer() {
+	plDead = 1;
+	inMenu = 1;
+	hasDied = 1;
+	Swarm* s = firstSwarm;
+	while (s != NULL) {
+		Swarm* n = s->next;
+		free(s);
+		s = n;
+	}
+	firstSwarm = NULL;
+	lastSwarm = NULL;
+	
+	for (int i = 0; i < xchunks; i++) {
+		for (int j = 0; j < ychunks; j++) {
+			Platform* platform = platforms[i][j];
+			
+			while (1) {
+				Platform* n = platform->next;
+				free(platform);
+				platform = n;
+				if (platform == NULL) {
+					break;
+				}
+			}
+			
+			platforms[i][j] = NULL;
+		}
+	}
+}
+
+
+void killSwarm(Swarm* s) {
+	if (s == firstSwarm && s == lastSwarm) {
+		free(s);
+		firstSwarm = NULL;
+		lastSwarm = NULL;
+	} else if (s == firstSwarm) {
+		firstSwarm = s->next;
+		s->next->prev = NULL;
+		free(s);
+	} else if (s == lastSwarm) {
+		lastSwarm = s->prev;
+		s->prev->next = NULL;
+		free(s);
+	} else {
+		s->prev->next = s->next;
+		s->next->prev = s->prev;
+		free(s);
+	}
+}
+
+void killProjectile(Projectile* s) {
+	if (s == firstProjectile && s == lastProjectile) {
+		free(s);
+		firstProjectile = NULL;
+		lastProjectile = NULL;
+	} else if (s == firstProjectile) {
+		firstProjectile = s->next;
+		s->next->prev = NULL;
+		free(s);
+	} else if (s == lastProjectile) {
+		lastProjectile = s->prev;
+		s->prev->next = NULL;
+		free(s);
+	} else {
+		s->prev->next = s->next;
+		s->next->prev = s->prev;
+		free(s);
+	}
+}
+
+
+
 int main() {
 	srand (time(NULL));
 	
@@ -178,10 +302,14 @@ int main() {
 	
 	const char* vertexShaderSrc = "#version 330 core\n"
 		"uniform float zoom;"
+		"uniform float angle;"
 		"uniform vec2 camPos;"
+		"uniform vec2 center;" //for rotation
 		"layout (location=0) in vec2 triPos;"
 		"void main(){"
-		"vec2 npos=zoom * (triPos - camPos);"
+		"vec2 tpos = triPos - center;"
+		"vec2 npos = vec2(tpos.x*cos(angle) - tpos.y*sin(angle),tpos.x*sin(angle) + tpos.y*cos(angle)) + center;"
+		"npos=zoom * (npos - camPos);"
 		"gl_Position=vec4(npos,0,1);}\0";
 
 	const char* fragmentShaderSrc = "#version 330 core\n"
@@ -278,8 +406,13 @@ int main() {
 	GLTtext* startText = gltCreateText();
 	gltSetText(startText, "Start");
 	GLTtext* instructionText = gltCreateText();
-	gltSetText(instructionText, "Instructions:\n Right Click: Grapple, hold to reel in\n QE: Control zoom");
-
+	gltSetText(instructionText, "Instructions:\n Left Click: Fire\nRight Click: Grapple, hold to reel in\n QE: Control zoom");
+	GLTtext* deadText = gltCreateText();
+	gltSetText(deadText, "You Died");
+	GLTtext* scoreText = gltCreateText();
+	gltSetText(scoreText, "Final Score: 0");
+	GLTtext* scoreNumber = gltCreateText();
+	gltSetText(scoreNumber, "0");
 
 
 	glUseProgram(shaderProgram);
@@ -303,6 +436,8 @@ int main() {
 	const int camPosLocation = glGetUniformLocation(shaderProgram, "camPos");
 	const int colorLocation = glGetUniformLocation(shaderProgram, "color");
 	const int zoomLocation = glGetUniformLocation(shaderProgram, "zoom");
+	const int centerLocation = glGetUniformLocation(shaderProgram, "center");
+	const int angleLocation = glGetUniformLocation(shaderProgram, "angle");
 	
 	
 	//float invWindowWidth = 1.0f / (float)windowWidth;
@@ -322,6 +457,8 @@ int main() {
 	//glfwSwapInterval(0);
 	
 	glUniform1f(zoomLocation, 1.0f);
+	glUniform1f(angleLocation, 0.0f);
+	glUniform2f(centerLocation, 0.0f, 0.0f);
 	
 	//setup drawing models
 	
@@ -345,7 +482,6 @@ int main() {
 	
 	
 	//some game data
-	char inMenu = 1;
 	
 	
 	
@@ -358,6 +494,10 @@ int main() {
 		1,2,3
 	};
 	
+	//mx+b, squared radius
+	char circleLineCollision(float m, float b, float r2) {
+		return m*m*b*b - (m*m+1)*(b*b-r2) > 0;
+	}
 	
 	double fpsclastTime = glfwGetTime();
 	int fpscnbFrames = 0;
@@ -373,14 +513,17 @@ int main() {
 	
 	float lastpx, lastpy;
 	
-	
+	int enemySpawns;
+	int score;
 	
 	while (!glfwWindowShouldClose(window)) {
 		double oldTime = glfwGetTime();
 		
-		mclick = 0;
+		m1click = 0;
 		m2click = 0;
 		glfwPollEvents();
+		
+		
 		
 		//fps counter
 		double fpsccurrentTime = glfwGetTime();
@@ -391,23 +534,29 @@ int main() {
 		    fpscnbFrames = 0;
 		    fpsclastTime += 1.0;
 		}
-		
-    float mouseDist = sqrt(mx*mx+my*my);
-    float t1=mx / mouseDist;
-    float t2=my / mouseDist;
          
-    float angle = atan2(t2,t1);
+    float angle = atan2(my,mx);
+		
+		float altitudeStart = 25.0f;
+		float spaceStart = 85.0f;
+		
+		float altitudeValue = (abs(py - altitudeStart - spaceStart) - abs(py - altitudeStart)) / (2.0f * spaceStart) + 0.5f;
+		
 		
 		
 		if (inMenu) {
-			if (mclick && mx > -0.7f && mx < 0.7f && my > -0.1f && my < 0.1f) {
+			if (m1click && mx > -0.7f && mx < 0.7f && my > -0.1f && my < 0.1f) {
 				//initialize game
 				inMenu = 0;
+				score = 0;
+				gltSetText(scoreNumber, "0");
 				
-				px = chunkSize * (float)(xchunks)*0.5f;
-				py = chunkSize * (float)(ychunks)*0.5f;
+				px = 0;
+				py = 0;
 				pvx = 0;
 				pvy = 0;
+				pchunkx = 0;
+				pchunky = 0;
 				
 				grapplex = 0;
 				grappley = 0;
@@ -415,8 +564,11 @@ int main() {
 				grapplevy = 0;
 				grappling = 0;
 				grappleHooked = 0;
+				weapon = 0;
+				plDead = 0;
+				
 
-				zoom = 0.5f;
+				zoom = 0.4f;
 				glUseProgram(shaderProgram);
 				glUniform1f(zoomLocation, zoom);
 				
@@ -428,25 +580,27 @@ int main() {
 				}
 				
 				//printf("got here\n");
+				
+				lastpx = px;
+				lastpy = py;
+				
+				trailsNum = 0;
+				for (int i = 0; i < trailCount*2; i+=2) {
+					trails[i] = px;
+					trails[i+1] = py;
+				}
+				enemyTimer = 590;
+				maxEnemyTimer = 600;
+				enemySpawns = 0;
+			
 			}
-			
-			lastpx = px;
-			lastpy = py;
-			
-			trailsNum = 0;
-			for (int i = 0; i < trailCount*2; i+=2) {
-				trails[i] = px;
-				trails[i+1] = py;
-			}
-			
-			
 		} else {
-			//gravity
-			pvy -= 0.00012f;
-			
 			//game logic
 			
+			//gravity
+			pvy -= 0.0001f * altitudeValue;
 			
+			//grapple send
 			if (m2click) {
 				if (grappling) {
 					grappling = 0;
@@ -460,6 +614,39 @@ int main() {
 					grappleHooked = 0;
 				}
 			}
+			
+			//attack
+			if (m1click) {
+				/*switch (weapon) {
+					case 0:
+					//triangle melee
+					
+					//attack is a triangle
+					const float meleeRange = 0.1f;
+					const float meleeBase = 0.04f; //radius
+					
+					
+					break;
+				}*/
+				
+				Projectile* p = malloc(sizeof(Projectile));
+				p->x = px;
+				p->y = py;
+				p->vx = 0.05f * cos(angle) + pvx;
+				p->vy = 0.05f * sin(angle) + pvy;
+				p->angle = angle;
+				p->next = NULL;
+				p->prev = NULL;
+				if (firstProjectile == NULL) {
+					firstProjectile = p;
+					lastProjectile = p;
+				} else {
+					p->prev = lastProjectile;
+					lastProjectile->next = p;
+					lastProjectile = p;
+				}
+			}
+			
 			
 			//set chunks
 			long npchunkx = floorl(px / chunkSize);
@@ -587,103 +774,269 @@ int main() {
 			}
 			
 			
+			//spawn enemies
+			if (enemyTimer >= maxEnemyTimer) {
+				enemyTimer = 0;
+				
+				int spawningPoints = enemySpawns * 5 + 5 + floor(randf() * 10);
+				enemySpawns++;
+				
+				float rand2 = randf()*0.35f;
+				float rand3 = randf()*0.35f;
+				
+				float angle = randf() * M_PI * 2.0f;
+				Swarm* prev = lastSwarm;
+				int i = 0;
+				while (i < spawningPoints) {
+					float rand = randf(); // enemy type
+					
+					Swarm* a = malloc(sizeof(Swarm));
+					a->x = cos(angle) * 5.0f + 0.4f * randf()-0.2f + px;
+					a->y = sin(angle) * 5.0f + 0.4f * randf()-0.2f + py;
+					a->vx = 0;
+					a->vy = 0;
+					a->angle = 0;
+					a->size = 0.05f;
+					if (rand < 0.05f + rand2 && enemySpawns > 3) {
+						//green swarm
+						a->color1 = 0.45f;
+						a->color2 = 0.99f;
+						a->color3 = 0.45f;
+						
+						a->hasWeapon = 0;
+						a->hp = 2;
+						
+						a->speed = 1.2f;
+						i+=2;
+					} else if (rand > 0.95f -rand3 && enemySpawns > 2) {
+						//blue (ranged) swarm
+						a->color1 = 0.62f;
+						a->color2 = 0.75f;
+						a->color3 = 0.99f;
+						
+						a->hasWeapon = 1;
+						a->hp = 2;
+						
+						a->speed = 1.0f;
+						i+=3;
+					} else  {
+						//red swarm
+						a->color1 = 0.95f;
+						a->color2 = 0.35f;
+						a->color3 = 0.12f;
+						
+						a->hasWeapon = 0;
+						a->hp = 1;
+						
+						a->speed = 1.0f;
+						i++;
+					}
+					a->next = NULL;
+					a->prev = prev;
+					if (a->prev) {
+						a->prev->next = a;
+					} else {
+						firstSwarm = a;
+					}
+					prev = a;
+					
+					lastSwarm = a;
+				
+					
+				}
+			}
+			enemyTimer++;
+			
+			int swarmCount = 0;
+			//swarm logic
+			for (Swarm* enemy = firstSwarm; enemy != NULL; enemy = enemy->next) {	
+				enemy->ax=(px-enemy->x);
+				enemy->ay=(py-enemy->y);
+				if (sqr(enemy->ax) + sqr(enemy->ay) > 400.0f) {//despawn after 20 dist
+					if (enemy->prev != NULL) {//the first spawned enemy won't despawn. oh well.
+						if (enemy->next == NULL)
+							lastSwarm = enemy->prev; 
+						else
+							enemy->next->prev = enemy->prev;
+						
+						enemy->prev->next = enemy->next;
+						Swarm* t = enemy->prev;
+						free(enemy);
+						enemy=t;
+						continue;
+					}
+				}
+				
+				if (sqr(enemy->ax) + sqr(enemy->ay) < sqr(enemy->size + playerSize-.01f)) {
+					plDead = 1;
+				}
+				
+				swarmCount++;
+				 
+			}
+			{
+				int i = 0;
+				for (Swarm* enemy1 = firstSwarm; i < swarmCount - 1; enemy1 = enemy1->next) {
+					int j = i+1;
+					for (Swarm* enemy2 = enemy1->next; j < swarmCount; enemy2 = enemy2->next) {
+						float dx = enemy1->x - enemy2->x;
+						float dy = enemy1->y - enemy2->y;
+						float d = dx*dx+dy*dy;
+						dx /= d;
+						dy /= d;
+						
+						enemy1->ax += dx/d * 0.00012;
+						enemy1->ay += dy/d * 0.00012;
+						enemy2->ax -= dx/d * 0.00012;
+						enemy2->ay -= dy/d * 0.00012;
+						
+					
+					
+						j++;
+					}
+					i++;
+				}
+			}
+			for (Swarm* enemy = firstSwarm; enemy != NULL; enemy = enemy->next) {
+				
+				float mag = sqrt(enemy->ax*enemy->ax + enemy->ay*enemy->ay);
+				float invmag = 0.0005f/mag;
+				enemy->ax*=invmag;
+				enemy->ay*=invmag;
+				enemy->vx += enemy->ax * enemy->speed;
+				enemy->vy += enemy->ay * enemy->speed;
+				enemy->vx *= .993;
+				enemy->vy *= .993;
+				enemy->x += enemy->vx;
+				enemy->y += enemy->vy;
+				enemy->angle = atan2(enemy->ay, enemy->ax);
+				 
+			}
+			
+			//projectile logic
+			Projectile* p = firstProjectile;
+			while (p!=NULL) {
+				p->x+=p->vx;
+				p->y+=p->vy;
+				char alive = 1;
+				
+				//despawn if far enough
+				if (sqr(p->x-px) + sqr(p->y-py) > 400.0f) {
+					Projectile* t = p;
+					p = p->next;
+					killProjectile(t);
+					continue;
+				}
+				
+				Swarm* e = firstSwarm;
+				while (e != NULL) {
+					float d2 = sqr(e->x-p->x) + sqr(e->y-p->y);
+					if (d2 < e->size * e->size) {
+						Projectile* t = p;
+						p = p->next;
+						killProjectile(t);
+						e->hp-=1;
+						if (e->hp < 1) {
+							killSwarm(e);
+						}
+						score++;
+						alive = 0;
+						
+						char txt[16];
+						sprintf(txt, "%d", score);
+						gltSetText(scoreNumber, txt);
+						break;
+					} else {
+						e = e->next;
+					}
+				}
+				
+				if (alive){ 
+					p=p->next;
+				}
+			}
+			
+			
+			
 			
 			
 			if (grappling) {
 				grapplex += grapplevx;
 				grappley += grapplevy;
 				
-				if (!grappleHooked) {
-					/*for (int i = 0; i < numPlatforms; i++) {
+				if (!grappleHooked && (sqr(px-grapplex) + sqr(py-grappley)) > maxGrappleLenSquared) {
+					grappling = 0;
+				} else {
+					if (!grappleHooked) {
+						
+						
 						char brk = 0;
-						if (abs(grapplex - platforms[i].x1) < 6.0f && abs(grappley - platforms[i].y1) < 6.0f) {
-							grapplex -= grapplevx;
-							grappley -= grapplevy;
-							for (int j = 0; j < 5; j++) {
-								grapplex += grapplevx*0.2f;
-								grappley += grapplevy*0.2f;
-								if (grapplex > platforms[i].x1 && grapplex < platforms[i].x2 && grappley > platforms[i].y1 && grappley < platforms[i].y2) {
-									grappleHooked = 1;
-									grappleLen = sqrt(sqr(px-grapplex)+sqr(py-grappley));
-									grapplevx=0;
-									grapplevy=0;
-									
-									brk = 1;
-									break;
-									
-								}
-							}
-							
-							if (brk) {break;}
-						}
-					}*/
-					
-					char brk = 0;
-					
-					for (int xi = 0; xi < 2; xi++) {
-						for (int yi = 0; yi < 2; yi++) {
-							int x = xi - 1 + floor(grapplex / chunkSize) - floor(px / chunkSize) + pxchunk;
-							int y = yi - 1 + floor(grappley / chunkSize) - floor(py / chunkSize) + pychunk;
-							
-							if (x < 0 || y < 0 || x > xchunks-1 || y > ychunks-1) {
-								continue;
-							}
-							
-							Platform* platform = platforms[x][y];
-							
-							while (1) {
-								if (abs(grapplex - platform->x1) < 6.0f && abs(grappley - platform->y1) < 6.0f) {
-									grapplex -= grapplevx;
-									grappley -= grapplevy;
-									for (int j = 0; j < 5; j++) {
-										grapplex += grapplevx*0.2f;
-										grappley += grapplevy*0.2f;
-										if (grapplex > platform->x1 && grapplex < platform->x2 && grappley > platform->y1 && grappley < platform->y2) {
-											grappleHooked = 1;
-											grappleLen = sqrt(sqr(px-grapplex)+sqr(py-grappley));
-											grapplevx=0;
-											grapplevy=0;
-											
-											brk = 1;
-											break;
-											
-										}
-									}
-									
-									if (brk) {break;}
+						
+						for (int xi = 0; xi < 2; xi++) {
+							for (int yi = 0; yi < 2; yi++) {
+								int x = xi - 1 + floor(grapplex / chunkSize) - floor(px / chunkSize) + pxchunk;
+								int y = yi - 1 + floor(grappley / chunkSize) - floor(py / chunkSize) + pychunk;
+								
+								if (x < 0 || y < 0 || x > xchunks-1 || y > ychunks-1) {
+									continue;
 								}
 								
-								platform = platform->next;
-								if (platform == NULL) {
-									break;
+								Platform* platform = platforms[x][y];
+								
+								while (1) {
+									if (abs(grapplex - platform->x1) < 6.0f && abs(grappley - platform->y1) < 6.0f) {
+										grapplex -= grapplevx;
+										grappley -= grapplevy;
+										for (int j = 0; j < 5; j++) {
+											grapplex += grapplevx*0.2f;
+											grappley += grapplevy*0.2f;
+											if (grapplex > platform->x1 && grapplex < platform->x2 && grappley > platform->y1 && grappley < platform->y2) {
+												grappleHooked = 1;
+												grappleLen = sqrt(sqr(px-grapplex)+sqr(py-grappley));
+												grapplevx=0;
+												grapplevy=0;
+												
+												brk = 1;
+												break;
+												
+											}
+										}
+										
+										if (brk) {break;}
+									}
+									
+									platform = platform->next;
+									if (platform == NULL) {
+										break;
+									}
 								}
+								if (brk) {break;}
 							}
 							if (brk) {break;}
 						}
-						if (brk) {break;}
-					}
-					
-				}
-				if (grappleHooked) {
-					float actualLen = sqrt(sqr(px-grapplex)+sqr(py-grappley));
-					
-					if (m2down) {
-						if (grappleLen > playerSize) {
-							if (grappleLen > actualLen) {
-								grappleLen = actualLen;
-							}
-							grappleLen -= 0.02f;
-						}
-					}
-					
-					if (actualLen > grappleLen) {
-						float force = grappleSpringConst * (actualLen - grappleLen);
-					
-						float fx = (grapplex - px) / actualLen;
-						float fy = (grappley - py) / actualLen;
 						
-						pvx += fx * force;
-						pvy += fy * force;
+					}
+					if (grappleHooked) {
+						float actualLen = sqrt(sqr(px-grapplex)+sqr(py-grappley));
+						
+						if (m2down) {
+							if (grappleLen > playerSize) {
+								if (grappleLen > actualLen) {
+									grappleLen = actualLen;
+								}
+								grappleLen -= 0.02f;
+							}
+						}
+						
+						if (actualLen > grappleLen) {
+							float force = grappleSpringConst * (actualLen - grappleLen);
+						
+							float fx = (grapplex - px) / actualLen;
+							float fy = (grappley - py) / actualLen;
+							
+							pvx += fx * force;
+							pvy += fy * force;
+						}
 					}
 				}
 			}
@@ -691,8 +1044,8 @@ int main() {
 			float v = sqrt(pvx*pvx+pvy*pvy);
 			
 			//air resisrance
-			pvx -= pvx * 0.01f * v;
-			pvy -= pvy * 0.01f * v;
+			pvx -= pvx * 0.01f * v * altitudeValue;
+			pvy -= pvy * 0.01f * v * altitudeValue;
 			
 			px += pvx;
 			py += pvy;
@@ -720,6 +1073,9 @@ int main() {
     }
 		
 		if (inMenu) {
+			zoom = 1.0f;
+			glUniform1f(zoomLocation, zoom);
+			
 			glClearColor(0.85f, 0.85f, 0.85f, 1.0f);
     	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 			
@@ -734,38 +1090,23 @@ int main() {
 			gltDrawText2DAligned(titleText,(float)windowWidth/2,0.2f*(float)windowHeight/2,6.0f, GLT_CENTER, GLT_CENTER);
 			gltDrawText2DAligned(startText,(float)windowWidth/2,0.5f*(float)windowHeight,4.0f, GLT_CENTER, GLT_CENTER);
 			gltDrawText2DAligned(instructionText,(float)windowWidth/2,0.6f*(float)windowHeight,2.0f, GLT_CENTER, GLT_TOP);
+			if (hasDied) {
+				char txt[30];
+				sprintf(txt, "Final Score: %d", score);
+				gltSetText(scoreText, txt);
+				gltDrawText2DAligned(deadText,(float)windowWidth/2,0.25f*(float)windowHeight,4.0f, GLT_CENTER, GLT_CENTER);
+				gltDrawText2DAligned(scoreText,(float)windowWidth/2,0.35f*(float)windowHeight,4.0f, GLT_CENTER, GLT_CENTER);
+			}
 			
 			gltEndDraw();
 		} else {
-			glClearColor(0.05f, 0.05f, 0.05f, 1.0f);
+			glClearColor(altitudeValue * 0.05f, altitudeValue * 0.1f, altitudeValue * 0.15f, 1.0f);
     	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 			
 			//draw platforms
 			glUniform2f(camPosLocation, px, py);
 			glUniform4f(colorLocation, 0.95f, 0.95f, 0.95f, 1.0f);
 			glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, 0, 6, platformDraw);
-			/*for (int i = 0; i < numPlatforms; i++) {
-				float camx = px - platforms[i].x1;
-				float camy = py - platforms[i].y1;
-				
-				
-				if (abs(camy) > 10.0f) {
-					continue;
-				}
-				if (abs(camx) > 10.0f) {
-					camx -= mapWidth;
-					if (abs(camx) > 10.0f) {
-						camx += 2*mapWidth;
-						if (abs(camx) > 10.0f) {
-							continue;
-						}
-					}
-				}
-				
-				
-				glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(float) * 8, platforms[i].drawing);
-				glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_BYTE, 0);
-			}*/
 			
 			for (int x=pxchunk-1; x < pxchunk+2; x++) {
 				for (int y=pychunk-1; y < pychunk+2; y++) {
@@ -798,6 +1139,29 @@ int main() {
 			}
 			
 			
+			//draw enemies
+			glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(float) * 6, swarmVerts);
+			glUniform2f(centerLocation, 0, 0);
+			for (Swarm* enemy = firstSwarm; enemy != NULL; enemy = enemy->next) {
+				glUniform4f(colorLocation, enemy->color1, enemy->color2, enemy->color3, 1.0f);
+				glUniform2f(camPosLocation, px-enemy->x, py-enemy->y);
+				glUniform1f(angleLocation, enemy->angle);
+				
+				glDrawArrays(GL_TRIANGLES, 0, 3);
+			}
+			
+			//draw bullets
+			glUniform4f(colorLocation, 0.2f, 0.9f, 0.2f, 1.0f);
+			glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(float) * 6, bulletVerts);
+			for (Projectile* bullet = firstProjectile; bullet != NULL; bullet = bullet->next) {
+				glUniform2f(camPosLocation, px-bullet->x, py-bullet->y);
+				glUniform1f(angleLocation, bullet->angle);
+				glDrawArrays(GL_TRIANGLES, 0, 3);
+			}
+			glUniform1f(angleLocation, 0.0f);
+			
+			
+			
 			//trails
 			glUniform4f(colorLocation, 0.98f, 0.98f, 0.98f, 0.2f);
 			glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(float) * playerModelSize, playerModel);
@@ -825,6 +1189,16 @@ int main() {
 			glUniform4f(colorLocation, 0.98f, 0.98f, 0.98f, 1.0f);
 			//glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(float) * playerModelSize, playerModel);
 			glDrawArrays(GL_TRIANGLE_FAN, 0, playerModelSize/2);
+			
+			//draw score number
+			gltBeginDraw();
+			gltDrawText2DAligned(scoreNumber,0.0f,0.0f,4.0f, GLT_LEFT, GLT_TOP);
+			gltEndDraw();
+			
+			//player dead
+			if (plDead) {
+				killPlayer();
+			}
 		}
 		
 		
