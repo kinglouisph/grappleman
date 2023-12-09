@@ -406,7 +406,7 @@ int main() {
 	GLTtext* startText = gltCreateText();
 	gltSetText(startText, "Start");
 	GLTtext* instructionText = gltCreateText();
-	gltSetText(instructionText, "Instructions:\n Left Click: Fire, hold for powerup fire\n Right Click: Grapple, hold to reel in\n QE: Control zoom");
+	gltSetText(instructionText, "Instructions:\n Left Click: Fire, hold for powerup fire\n Right Click: Grapple, hold to reel in\n QE: Control zoom\n Goal: Survive");
 	GLTtext* deadText = gltCreateText();
 	gltSetText(deadText, "You Died");
 	GLTtext* scoreText = gltCreateText();
@@ -1177,6 +1177,7 @@ int main() {
 			
 			//grapple
 			glUniform2f(camPosLocation, px, py);
+			glUniform4f(colorLocation, 0.95f, 0.95f, 0.95f, 1.0f);
 			if (grappling) {
 				float line[4] = {
 					px,py,
