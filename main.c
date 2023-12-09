@@ -406,13 +406,15 @@ int main() {
 	GLTtext* startText = gltCreateText();
 	gltSetText(startText, "Start");
 	GLTtext* instructionText = gltCreateText();
-	gltSetText(instructionText, "Instructions:\n Left Click: Fire\nRight Click: Grapple, hold to reel in\n QE: Control zoom");
+	gltSetText(instructionText, "Instructions:\n Left Click: Fire, hold for powerup fire\n Right Click: Grapple, hold to reel in\n QE: Control zoom");
 	GLTtext* deadText = gltCreateText();
 	gltSetText(deadText, "You Died");
 	GLTtext* scoreText = gltCreateText();
 	gltSetText(scoreText, "Final Score: 0");
 	GLTtext* scoreNumber = gltCreateText();
 	gltSetText(scoreNumber, "0");
+	GLTtext* powerUpText = gltCreateText();
+	gltSetText(powerUpText, "0");
 
 
 	glUseProgram(shaderProgram);
@@ -516,6 +518,9 @@ int main() {
 	int enemySpawns;
 	int score;
 	
+	int powerUpBullets, powerUpTimer;
+	float powerUpX, powerUpY;
+	
 	while (!glfwWindowShouldClose(window)) {
 		double oldTime = glfwGetTime();
 		
@@ -550,6 +555,7 @@ int main() {
 				inMenu = 0;
 				score = 0;
 				gltSetText(scoreNumber, "0");
+				gltSetText(powerUpText, "0");
 				
 				px = 0;
 				py = 0;
@@ -567,6 +573,8 @@ int main() {
 				weapon = 0;
 				plDead = 0;
 				
+				powerUpBullets = 0;
+				powerUpTimer = 0;
 
 				zoom = 0.4f;
 				glUseProgram(shaderProgram);
@@ -615,19 +623,30 @@ int main() {
 				}
 			}
 			
+			//power up logic
+			if (powerUpTimer <= 0) {
+				float ang = randf()*M_PI*2;
+				powerUpX = px + 3.0f * cos(ang);
+				powerUpY = py + 3.0f * sin(ang);
+				powerUpTimer = 600;
+			} else if (powerUpTimer == 600) {
+				if (sqr(px-powerUpX) + sqr(py-powerUpY) < sqr(0.2f + playerSize)) {
+					powerUpTimer = 599;
+					powerUpBullets += 80;
+					
+					char txt[10];
+					sprintf(txt, "%d", powerUpBullets);
+					gltSetText(powerUpText, txt);
+				} else if (sqr(px-powerUpX) + sqr(py-powerUpY) > 14.0f * 14.0f) {
+					powerUpTimer = 0;
+				}
+			} else {
+				powerUpTimer--;
+			}
+			
+			
 			//attack
 			if (m1click) {
-				/*switch (weapon) {
-					case 0:
-					//triangle melee
-					
-					//attack is a triangle
-					const float meleeRange = 0.1f;
-					const float meleeBase = 0.04f; //radius
-					
-					
-					break;
-				}*/
 				
 				Projectile* p = malloc(sizeof(Projectile));
 				p->x = px;
@@ -645,6 +664,28 @@ int main() {
 					lastProjectile->next = p;
 					lastProjectile = p;
 				}
+			} else if (m1down && powerUpBullets > 0) {
+				Projectile* p = malloc(sizeof(Projectile));
+				p->x = px;
+				p->y = py;
+				p->vx = 0.05f * cos(angle) + pvx;
+				p->vy = 0.05f * sin(angle) + pvy;
+				p->angle = angle;
+				p->next = NULL;
+				p->prev = NULL;
+				if (firstProjectile == NULL) {
+					firstProjectile = p;
+					lastProjectile = p;
+				} else {
+					p->prev = lastProjectile;
+					lastProjectile->next = p;
+					lastProjectile = p;
+				}
+				
+				powerUpBullets--;
+				char txt[10];
+				sprintf(txt, "%d", powerUpBullets);
+				gltSetText(powerUpText, txt);
 			}
 			
 			
@@ -806,7 +847,7 @@ int main() {
 						a->hasWeapon = 0;
 						a->hp = 2;
 						
-						a->speed = 1.2f;
+						a->speed = 1.35f;
 						i+=2;
 					} else if (rand > 0.95f -rand3 && enemySpawns > 2) {
 						//blue (ranged) swarm
@@ -815,10 +856,10 @@ int main() {
 						a->color3 = 0.99f;
 						
 						a->hasWeapon = 1;
-						a->hp = 2;
+						a->hp = 4;
 						
 						a->speed = 1.0f;
-						i+=3;
+						i+=2;
 					} else  {
 						//red swarm
 						a->color1 = 0.95f;
@@ -1125,6 +1166,15 @@ int main() {
 				}
 			}
 			
+			//power up
+			if (powerUpTimer == 600) {
+				glUniform2f(camPosLocation, px-powerUpX, py-powerUpY);
+				glUniform4f(colorLocation, 0.65f, 0.99f, 0.65f, 1.0f);
+				glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(float) * 14, powerUpVerts);
+				glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, 0, 9, powerUpInds);
+				glDrawElements(GL_TRIANGLES, 9, GL_UNSIGNED_BYTE, 0);
+			}
+			
 			//grapple
 			glUniform2f(camPosLocation, px, py);
 			if (grappling) {
@@ -1193,7 +1243,11 @@ int main() {
 			//draw score number
 			gltBeginDraw();
 			gltDrawText2DAligned(scoreNumber,0.0f,0.0f,4.0f, GLT_LEFT, GLT_TOP);
+			//draw power up number
+			gltDrawText2DAligned(powerUpText,(float)windowWidth,0.0f,4.0f, GLT_RIGHT, GLT_TOP);
 			gltEndDraw();
+			
+			
 			
 			//player dead
 			if (plDead) {
